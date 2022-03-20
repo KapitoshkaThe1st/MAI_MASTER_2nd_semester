@@ -3,7 +3,6 @@ from collections import deque
 
 import matplotlib.pyplot as plt
 
-
 class Atom:
     def __init__(self, position, wyckoff_position_name):
         self.position = position
@@ -59,7 +58,6 @@ class WyckoffPosition:
         self.guide_vectors = guide_vectors
 
     def get_position(self, parameters):
-        # print(f'{self.base_position=}')
         pos = self.base_position.copy()
         for i in range(self.n_degrees_of_freedom):
             pos += self.guide_vectors[i] * parameters[i]
@@ -145,16 +143,13 @@ class AsymmetricUnit:
     def check_distinct(self, pos, atoms):
         for atom in atoms:
             dist = AsymmetricUnit.distance(atom.position, pos)
-            # print(f'{dist=}')
             if dist < self.eps:
-                # print('too close')
                 return False
         return True
 
     def generate_atoms(self, parameters, check_count=True):
         atoms = [Atom(self.wyckoff_positions[wp_name].get_position(wp_params), wp_name) for wp_name, wp_params in parameters.items()]
         q = deque(atoms)
-        # print(f'{q=}')
         while len(q) > 0:
             atom = q.popleft()
             for symmetry in self.symmetries:
@@ -169,11 +164,10 @@ class AsymmetricUnit:
         if check_count:
             right_atoms_count = 0
             for wp_name in parameters:
-                # print(f'{self.wyckoff_positions[wp_name].name} {self.wyckoff_positions[wp_name].n_result_atoms}')
                 right_atoms_count += self.wyckoff_positions[wp_name].n_result_atoms
 
             if len(atoms) < right_atoms_count:
-                print(f'warning: атомов меньше, чем нужно: есть {len(atoms)}, нужно {right_atoms_count}')
+                # print(f'warning: атомов меньше, чем нужно: есть {len(atoms)}, нужно {right_atoms_count}')
                 return None
 
         return atoms
@@ -196,6 +190,9 @@ class DenseAtomPacker:
         return max((radius_a + radius_b) - dist, 0.0)
 
     def optimize_parameter_simple(self, a):
+        parameter_low_bound = 0.0
+        parameter_high_bound = 1.0
+
         atom_generation_parameters = {
             'b' : [],
             'c' : [], 
@@ -203,7 +200,7 @@ class DenseAtomPacker:
         }
 
         n_samples = 1000
-        parameter_step = 1 / n_samples
+        parameter_step = (parameter_high_bound - parameter_low_bound) / n_samples
 
         params = []
         overlaps = []
@@ -212,11 +209,7 @@ class DenseAtomPacker:
         optimal_atoms = None
         optimal_atom_generation_parameters = None
         for i in range(n_samples + 1):
-            
-            if i % 100 == 0:
-                print(f'iteration: {i}')
-            
-            p = i * parameter_step
+            p = parameter_low_bound + i * parameter_step
 
             atom_generation_parameters['e'] = [p]
 
@@ -226,8 +219,6 @@ class DenseAtomPacker:
                 continue
 
             overlap = self.get_max_overlap(a, atoms)
-
-            # print(f'{overlap=}')
 
             params.append(p)
             overlaps.append(overlap)
@@ -240,30 +231,29 @@ class DenseAtomPacker:
             if overlap == 0:
                 break
 
-        # fig = plt.figure(figsize=(12,10))
-        # ax = fig.add_subplot()
-
-        # ax.plot(params, overlaps)
-
-        # plt.show()
-
         return min_overlap, optimal_atoms, optimal_atom_generation_parameters
 
     def optimize_parameter(self, a):
         offset = 0.001
         overlap_eps = 0.00001
-        parameter = 0.0
+
+        parameter_low_bound = 0.0
+        parameter_high_bound = 1.0
+
         atom_generation_parameters = {
             'b' : [],
             'c' : [], 
             'e' : [0.0]
         }
 
+        parameter = parameter_low_bound
+
         guide_vector_mag = np.linalg.norm(self.asymmetric_unit.wyckoff_positions['e'].guide_vectors[0])
 
         min_overlap = float('inf')
         optimal_atoms = None
         optimal_parameter = 0.0
+
         while True:
             atom_generation_parameters['e'][0] = parameter
             atoms = self.asymmetric_unit.generate_atoms(atom_generation_parameters)
@@ -272,7 +262,7 @@ class DenseAtomPacker:
                 parameter += offset
                 continue
 
-            if parameter > 1.0:
+            if parameter > parameter_high_bound:
                 break
 
             overlap = self.get_max_overlap(a, atoms)
@@ -288,7 +278,7 @@ class DenseAtomPacker:
             else:
                 parameter += overlap / (2 * a * guide_vector_mag)
 
-            if parameter > 1.0:
+            if parameter > parameter_high_bound:
                 break
             
         atom_generation_parameters['e'][0] = optimal_parameter
@@ -360,12 +350,10 @@ packer = DenseAtomPacker(asymmetric_unit, radiuses_table)
 eps = 0.001
 a_min = 1
 a_max = 15
-a, atom_generation_parameters, atoms = packer.fit(a_min, a_max, eps)
+lattice_constant, atom_generation_parameters, atoms = packer.fit(a_min, a_max, eps)
 
-# # должна быть, вроде a = 8.12 - 8.23 Å (http://rruff.geo.arizona.edu/AMS/minerals/Hercynite)
-print(f'{a=} {atom_generation_parameters=}')
-
-points = list(map(lambda a: a.position, atoms))
+# должна быть, вроде a = 8.12 - 8.23 Å (http://rruff.geo.arizona.edu/AMS/minerals/Hercynite)
+print(f'{lattice_constant=} {atom_generation_parameters=}')
 
 palette = {
     'b' : 'r',
@@ -391,3 +379,24 @@ ax.set_ylabel('y', fontsize=16)
 ax.set_zlabel('z', fontsize=16)
 
 plt.show()
+
+wyckoff_pos_to_element_map = {
+    'b' : 'Fe',
+    'c' : 'Al', 
+    'e' : 'O'
+}
+
+def save_result(file_name, wyckoff_pos_to_element_map, lattice_constant, atoms_grouped, radiuses_table):
+    with open(file_name, 'w') as file:
+        file.write(f'{lattice_constant}\n')
+        file.write(f'{len(wyckoff_pos_to_element_map)}\n')
+        for wp, e in wyckoff_pos_to_element_map.items():
+            file.write(f'{e}\n')
+            file.write(f'{radiuses_table[wp]}\n')
+
+            atoms_in_group = atoms_grouped[wp]
+            file.write(f'{len(atoms_in_group)}\n')
+            for a in atoms_in_group:
+                file.write(f'{a[0]} {a[1]} {a[2]}\n')
+
+save_result('result.txt', wyckoff_pos_to_element_map, lattice_constant, atoms_grouped, radiuses_table)
