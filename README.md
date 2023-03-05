@@ -1,4 +1,4 @@
-# MAI_MASTER_WIP
+# MAI_MASTER_2nd_semester
 
 Чота написал пока учусь в МАИ
     
